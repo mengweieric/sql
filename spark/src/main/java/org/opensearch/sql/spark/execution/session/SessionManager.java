@@ -9,9 +9,8 @@ import static org.opensearch.sql.spark.execution.session.SessionId.newSessionId;
 
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
-import org.opensearch.sql.common.setting.Settings;
 import org.opensearch.sql.spark.client.EMRServerlessClient;
-import org.opensearch.sql.spark.execution.statestore.StateStore;
+import org.opensearch.sql.spark.execution.statestore.SessionStateStore;
 
 /**
  * Singleton Class
@@ -20,15 +19,14 @@ import org.opensearch.sql.spark.execution.statestore.StateStore;
  */
 @RequiredArgsConstructor
 public class SessionManager {
-  private final StateStore stateStore;
+  private final SessionStateStore stateStore;
   private final EMRServerlessClient emrServerlessClient;
-  private final Settings settings;
 
   public Session createSession(CreateSessionRequest request) {
     InteractiveSession session =
         InteractiveSession.builder()
-            .sessionId(newSessionId(request.getDatasourceName()))
-            .stateStore(stateStore)
+            .sessionId(newSessionId())
+            .sessionStateStore(stateStore)
             .serverlessClient(emrServerlessClient)
             .build();
     session.open(request);
@@ -36,23 +34,17 @@ public class SessionManager {
   }
 
   public Optional<Session> getSession(SessionId sid) {
-    Optional<SessionModel> model =
-        StateStore.getSession(stateStore, sid.getDataSourceName()).apply(sid.getSessionId());
+    Optional<SessionModel> model = stateStore.get(sid);
     if (model.isPresent()) {
       InteractiveSession session =
           InteractiveSession.builder()
               .sessionId(sid)
-              .stateStore(stateStore)
+              .sessionStateStore(stateStore)
               .serverlessClient(emrServerlessClient)
               .sessionModel(model.get())
               .build();
       return Optional.ofNullable(session);
     }
     return Optional.empty();
-  }
-
-  // todo, keep it only for testing, will remove it later.
-  public boolean isEnabled() {
-    return true;
   }
 }

@@ -45,10 +45,9 @@ dependencies {
     api project(':core')
     implementation project(':protocol')
     implementation project(':datasources')
-    implementation project(':legacy')
 
     implementation group: 'org.opensearch', name: 'opensearch', version: "${opensearch_version}"
-    implementation group: 'org.json', name: 'json', version: '20231013'
+    implementation group: 'org.json', name: 'json', version: '20230227'
     api group: 'com.amazonaws', name: 'aws-java-sdk-emr', version: '1.12.545'
     api group: 'com.amazonaws', name: 'aws-java-sdk-emrserverless', version: '1.12.545'
     implementation group: 'commons-io', name: 'commons-io', version: '2.8.0'
@@ -69,7 +68,6 @@ dependencies {
         because 'allows tests to run from IDEs that bundle older version of launcher'
     }
     testImplementation("org.opensearch.test:framework:${opensearch_version}")
-    testImplementation project(':opensearch')
 }
 
 test {
@@ -121,14 +119,8 @@ jacocoTestCoverageVerification {
                     'org.opensearch.sql.spark.dispatcher.model.*',
                     'org.opensearch.sql.spark.flint.FlintIndexType',
                     // ignore because XContext IOException
-                    'org.opensearch.sql.spark.execution.statestore.StateStore',
-                    'org.opensearch.sql.spark.execution.session.SessionModel',
-                    'org.opensearch.sql.spark.execution.statement.StatementModel',
-                    'org.opensearch.sql.spark.flint.FlintIndexStateModel',
-                    // TODO: add tests for purging flint indices
-                    'org.opensearch.sql.spark.cluster.ClusterManagerEventListener*',
-                    'org.opensearch.sql.spark.cluster.FlintIndexRetention',
-                    'org.opensearch.sql.spark.cluster.IndexCleanup'
+                    'org.opensearch.sql.spark.execution.statestore.SessionStateStore',
+                    'org.opensearch.sql.spark.execution.session.SessionModel'
             ]
             limit {
                 counter = 'LINE'

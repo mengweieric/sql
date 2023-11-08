@@ -5,23 +5,15 @@
 
 package org.opensearch.sql.spark.execution.session;
 
-import static org.opensearch.sql.spark.utils.IDUtils.decode;
-import static org.opensearch.sql.spark.utils.IDUtils.encode;
-
 import lombok.Data;
+import org.apache.commons.lang3.RandomStringUtils;
 
 @Data
 public class SessionId {
-  public static final int PREFIX_LEN = 10;
-
   private final String sessionId;
 
-  public static SessionId newSessionId(String datasourceName) {
-    return new SessionId(encode(datasourceName));
-  }
-
-  public String getDataSourceName() {
-    return decode(sessionId);
+  public static SessionId newSessionId() {
+    return new SessionId(RandomStringUtils.random(10, true, true));
   }
 
   @Override

@@ -5,46 +5,34 @@
 
 package org.opensearch.sql.spark.execution.session;
 
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
-import org.opensearch.sql.common.setting.Settings;
-import org.opensearch.sql.spark.client.EMRServerlessClient;
-import org.opensearch.sql.spark.execution.statestore.StateStore;
+import static org.junit.jupiter.api.Assertions.*;
 
-@ExtendWith(MockitoExtension.class)
-public class SessionManagerTest {
-  @Mock private StateStore stateStore;
-  @Mock private EMRServerlessClient emrClient;
+import org.junit.After;
+import org.junit.Before;
+import org.mockito.MockMakers;
+import org.mockito.MockSettings;
+import org.mockito.Mockito;
+import org.opensearch.action.admin.indices.delete.DeleteIndexRequest;
+import org.opensearch.sql.spark.execution.statestore.SessionStateStore;
+import org.opensearch.test.OpenSearchSingleNodeTestCase;
 
-  @Test
-  public void sessionEnable() {
-    Assertions.assertTrue(
-        new SessionManager(stateStore, emrClient, sessionSetting(true)).isEnabled());
+class SessionManagerTest extends OpenSearchSingleNodeTestCase {
+  private static final String indexName = "mockindex";
+
+  // mock-maker-inline does not work with OpenSearchTestCase. make sure use mockSettings when mock.
+  private static final MockSettings mockSettings =
+      Mockito.withSettings().mockMaker(MockMakers.SUBCLASS);
+
+  private SessionStateStore stateStore;
+
+  @Before
+  public void setup() {
+    stateStore = new SessionStateStore(indexName, client());
+    createIndex(indexName);
   }
 
-  public static Settings sessionSetting(boolean enabled) {
-    Map<Settings.Key, Object> settings = new HashMap<>();
-    settings.put(Settings.Key.SPARK_EXECUTION_SESSION_LIMIT, 100);
-    return settings(settings);
-  }
-
-  public static Settings settings(Map<Settings.Key, Object> settings) {
-    return new Settings() {
-      @Override
-      public <T> T getSettingValue(Key key) {
-        return (T) settings.get(key);
-      }
-
-      @Override
-      public List<?> getSettings() {
-        return (List<?>) settings;
-      }
-    };
+  @After
+  public void clean() {
+    client().admin().indices().delete(new DeleteIndexRequest(indexName)).actionGet();
   }
 }
