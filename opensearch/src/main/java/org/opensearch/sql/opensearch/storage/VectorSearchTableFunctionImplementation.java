@@ -10,7 +10,9 @@ import static org.opensearch.sql.opensearch.storage.VectorSearchTableFunctionRes
 import static org.opensearch.sql.opensearch.storage.VectorSearchTableFunctionResolver.TABLE;
 import static org.opensearch.sql.opensearch.storage.VectorSearchTableFunctionResolver.VECTOR;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 import org.opensearch.sql.common.setting.Settings;
 import org.opensearch.sql.data.model.ExprValue;
@@ -80,9 +82,10 @@ public class VectorSearchTableFunctionImplementation extends FunctionExpression
     String optionStr = getArgumentValue(OPTION);
 
     float[] vector = parseVector(vectorLiteral);
-    int k = parseK(optionStr);
+    Map<String, String> options = parseOptions(optionStr);
+    validateOptions(options);
 
-    return new VectorSearchIndex(client, settings, tableName, fieldName, vector, k);
+    return new VectorSearchIndex(client, settings, tableName, fieldName, vector, options);
   }
 
   private float[] parseVector(String vectorLiteral) {
@@ -96,15 +99,25 @@ public class VectorSearchTableFunctionImplementation extends FunctionExpression
     return vector;
   }
 
-  private int parseK(String optionStr) {
-    // Parse "k=10" or "k=10,method.ef_search=100"
+  static Map<String, String> parseOptions(String optionStr) {
+    Map<String, String> options = new LinkedHashMap<>();
     for (String pair : optionStr.split(",")) {
       String[] kv = pair.trim().split("=", 2);
-      if (kv.length == 2 && kv[0].trim().equals("k")) {
-        return Integer.parseInt(kv[1].trim());
+      if (kv.length == 2) {
+        options.put(kv[0].trim(), kv[1].trim());
       }
     }
-    throw new ExpressionEvaluationException("Missing required option: k");
+    return options;
+  }
+
+  private void validateOptions(Map<String, String> options) {
+    boolean hasK = options.containsKey("k");
+    boolean hasMaxDistance = options.containsKey("max_distance");
+    boolean hasMinScore = options.containsKey("min_score");
+    if (!hasK && !hasMaxDistance && !hasMinScore) {
+      throw new ExpressionEvaluationException(
+          "Missing required option: one of k, max_distance, or min_score");
+    }
   }
 
   /** Extract a named argument's string value. */

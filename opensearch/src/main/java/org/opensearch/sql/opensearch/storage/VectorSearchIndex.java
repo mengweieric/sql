@@ -5,6 +5,7 @@
 
 package org.opensearch.sql.opensearch.storage;
 
+import java.util.Map;
 import java.util.function.Function;
 import org.opensearch.common.unit.TimeValue;
 import org.opensearch.index.query.QueryBuilder;
@@ -21,9 +22,11 @@ import org.opensearch.sql.storage.read.TableScanBuilder;
  */
 public class VectorSearchIndex extends OpenSearchIndex {
 
+  private static final String VECTOR_OPTION = "vector";
+
   private final String field;
   private final float[] vector;
-  private final int k;
+  private final Map<String, String> options;
 
   public VectorSearchIndex(
       OpenSearchClient client,
@@ -31,11 +34,11 @@ public class VectorSearchIndex extends OpenSearchIndex {
       String indexName,
       String field,
       float[] vector,
-      int k) {
+      Map<String, String> options) {
     super(client, settings, indexName);
     this.field = field;
     this.vector = vector;
-    this.k = k;
+    this.options = options;
   }
 
   @Override
@@ -66,9 +69,31 @@ public class VectorSearchIndex extends OpenSearchIndex {
     }
     vectorJson.append("]");
 
+    StringBuilder optionsJson = new StringBuilder();
+    for (Map.Entry<String, String> entry : options.entrySet()) {
+      optionsJson.append(",");
+      String value = entry.getValue();
+      // Numeric values go unquoted, everything else quoted
+      if (isNumeric(value)) {
+        optionsJson.append(String.format("\"%s\":%s", entry.getKey(), value));
+      } else {
+        optionsJson.append(String.format("\"%s\":\"%s\"", entry.getKey(), value));
+      }
+    }
+
     String knnQueryJson =
         String.format(
-            "{\"knn\":{\"%s\":{\"vector\":%s,\"k\":%d}}}", field, vectorJson.toString(), k);
+            "{\"knn\":{\"%s\":{\"vector\":%s%s}}}",
+            field, vectorJson.toString(), optionsJson.toString());
     return new WrapperQueryBuilder(knnQueryJson);
+  }
+
+  private static boolean isNumeric(String str) {
+    try {
+      Double.parseDouble(str);
+      return true;
+    } catch (NumberFormatException e) {
+      return false;
+    }
   }
 }

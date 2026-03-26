@@ -5,12 +5,12 @@
 
 package org.opensearch.sql.opensearch.storage;
 
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -86,12 +86,36 @@ class VectorSearchTableFunctionImplementationTest {
   }
 
   @Test
-  void testMissingKOptionThrows() {
+  void testApplyArgumentsWithMaxDistance() {
+    VectorSearchTableFunctionImplementation impl =
+        createImplWithArgs("my-index", "embedding", "[1.0, 2.0]", "max_distance=10.0");
+    Table table = impl.applyArguments();
+    assertTrue(table instanceof VectorSearchIndex);
+  }
+
+  @Test
+  void testApplyArgumentsWithMinScore() {
+    VectorSearchTableFunctionImplementation impl =
+        createImplWithArgs("my-index", "embedding", "[1.0, 2.0]", "min_score=0.5");
+    Table table = impl.applyArguments();
+    assertTrue(table instanceof VectorSearchIndex);
+  }
+
+  @Test
+  void testMissingSearchModeOptionThrows() {
     VectorSearchTableFunctionImplementation impl =
         createImplWithArgs("my-index", "embedding", "[1.0, 2.0]", "method.ef_search=100");
     ExpressionEvaluationException ex =
         assertThrows(ExpressionEvaluationException.class, () -> impl.applyArguments());
-    assertEquals("Missing required option: k", ex.getMessage());
+    assertTrue(ex.getMessage().contains("one of k, max_distance, or min_score"));
+  }
+
+  @Test
+  void testParseOptionsMultiple() {
+    Map<String, String> opts =
+        VectorSearchTableFunctionImplementation.parseOptions("k=5,method.ef_search=100");
+    assertEquals("5", opts.get("k"));
+    assertEquals("100", opts.get("method.ef_search"));
   }
 
   @Test
