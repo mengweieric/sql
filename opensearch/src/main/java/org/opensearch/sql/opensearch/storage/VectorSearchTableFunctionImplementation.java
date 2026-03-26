@@ -75,9 +75,36 @@ public class VectorSearchTableFunctionImplementation extends FunctionExpression
   @Override
   public Table applyArguments() {
     String tableName = getArgumentValue(TABLE);
-    // For PoC: return the underlying OpenSearchIndex for the target table.
-    // This gives us field types, reserved fields (_score), and scan builder support.
-    return new OpenSearchIndex(client, settings, tableName);
+    String fieldName = getArgumentValue(FIELD);
+    String vectorLiteral = getArgumentValue(VECTOR);
+    String optionStr = getArgumentValue(OPTION);
+
+    float[] vector = parseVector(vectorLiteral);
+    int k = parseK(optionStr);
+
+    return new VectorSearchIndex(client, settings, tableName, fieldName, vector, k);
+  }
+
+  private float[] parseVector(String vectorLiteral) {
+    // Parse "[0.1, 0.2, 0.3]" or "0.1, 0.2, 0.3"
+    String cleaned = vectorLiteral.replaceAll("[\\[\\]]", "").trim();
+    String[] parts = cleaned.split(",");
+    float[] vector = new float[parts.length];
+    for (int i = 0; i < parts.length; i++) {
+      vector[i] = Float.parseFloat(parts[i].trim());
+    }
+    return vector;
+  }
+
+  private int parseK(String optionStr) {
+    // Parse "k=10" or "k=10,method.ef_search=100"
+    for (String pair : optionStr.split(",")) {
+      String[] kv = pair.trim().split("=", 2);
+      if (kv.length == 2 && kv[0].trim().equals("k")) {
+        return Integer.parseInt(kv[1].trim());
+      }
+    }
+    throw new ExpressionEvaluationException("Missing required option: k");
   }
 
   /** Extract a named argument's string value. */
