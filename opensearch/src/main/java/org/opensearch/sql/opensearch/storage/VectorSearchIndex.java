@@ -15,6 +15,7 @@ import org.opensearch.sql.opensearch.client.OpenSearchClient;
 import org.opensearch.sql.opensearch.request.OpenSearchRequestBuilder;
 import org.opensearch.sql.opensearch.storage.scan.OpenSearchIndexScan;
 import org.opensearch.sql.opensearch.storage.scan.OpenSearchIndexScanBuilder;
+import org.opensearch.sql.opensearch.storage.scan.VectorSearchQueryBuilder;
 import org.opensearch.sql.storage.read.TableScanBuilder;
 
 /**
@@ -45,20 +46,21 @@ public class VectorSearchIndex extends OpenSearchIndex {
   public TableScanBuilder createScanBuilder() {
     final TimeValue cursorKeepAlive =
         getSettings().getSettingValue(Settings.Key.SQL_CURSOR_KEEP_ALIVE);
-    var builder = createRequestBuilder();
+    var requestBuilder = createRequestBuilder();
 
-    // Inject knn query
-    builder.pushDownFilter(buildKnnQuery());
-    builder.pushDownTrackedScore(true);
+    // Use VectorSearchQueryBuilder to keep knn in must (scoring) context.
+    // WHERE filters will be placed in filter (non-scoring) context.
+    var queryBuilder = new VectorSearchQueryBuilder(requestBuilder, buildKnnQuery());
+    requestBuilder.pushDownTrackedScore(true);
 
     Function<OpenSearchRequestBuilder, OpenSearchIndexScan> createScanOperator =
-        requestBuilder ->
+        rb ->
             new OpenSearchIndexScan(
                 getClient(),
-                requestBuilder.getMaxResponseSize(),
-                requestBuilder.build(
+                rb.getMaxResponseSize(),
+                rb.build(
                     getIndexName(), cursorKeepAlive, getClient(), getFieldTypes().isEmpty()));
-    return new OpenSearchIndexScanBuilder(builder, createScanOperator);
+    return new OpenSearchIndexScanBuilder(queryBuilder, createScanOperator);
   }
 
   private QueryBuilder buildKnnQuery() {
