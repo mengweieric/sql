@@ -13,10 +13,12 @@ import static org.opensearch.sql.protocol.response.format.JsonResponseFormatter.
 import java.util.Map;
 import java.util.Optional;
 import org.apache.calcite.rel.RelNode;
+import org.apache.commons.lang3.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.ThreadContext;
 import org.opensearch.analytics.exec.QueryPlanExecutor;
+import org.opensearch.analytics.exec.profile.QueryProfile;
 import org.opensearch.cluster.service.ClusterService;
 import org.opensearch.common.unit.TimeValue;
 import org.opensearch.core.action.ActionListener;
@@ -39,6 +41,7 @@ import org.opensearch.sql.plugin.transport.TransportPPLQueryResponse;
 import org.opensearch.sql.protocol.response.QueryResult;
 import org.opensearch.sql.protocol.response.format.ResponseFormatter;
 import org.opensearch.sql.protocol.response.format.SimpleJsonResponseFormatter;
+import org.opensearch.sql.utils.SystemIndexUtils;
 import org.opensearch.transport.client.node.NodeClient;
 
 /**
@@ -94,7 +97,17 @@ public class RestUnifiedQueryAction {
         .equals(
             IndicesService.CLUSTER_PLUGGABLE_DATAFORMAT_VALUE_SETTING.get(
                 clusterService.getSettings()))) {
-      return true;
+      // Analytics engine can't serve system catalog; SHOW/DESCRIBE fall back to default pipeline
+      try (UnifiedQueryContext context = buildParsingContext(queryType)) {
+        boolean systemCatalog =
+            extractIndexName(query, queryType, context)
+                .map(RestUnifiedQueryAction::isSystemCatalog)
+                .orElse(false);
+        return !systemCatalog;
+      } catch (Exception e) {
+        // Check legacy-syntax SHOW/DESCRIBE; otherwise let AE handle and surface the error.
+        return !isLegacySystemCatalogQuery(query);
+      }
     }
     try (UnifiedQueryContext context = buildParsingContext(queryType)) {
       return extractIndexName(query, queryType, context)
@@ -104,6 +117,16 @@ public class RestUnifiedQueryAction {
     } catch (Exception e) {
       return false;
     }
+  }
+
+  private static boolean isSystemCatalog(String name) {
+    return SystemIndexUtils.isSystemIndex(name)
+        || SystemIndexUtils.DATASOURCES_TABLE_NAME.equals(name);
+  }
+
+  private static boolean isLegacySystemCatalogQuery(String query) {
+    String trimmed = query.trim();
+    return Strings.CI.startsWith(trimmed, "SHOW ") || Strings.CI.startsWith(trimmed, "DESCRIBE ");
   }
 
   private String stripSchemaPrefix(String indexName) {
@@ -137,7 +160,10 @@ public class RestUnifiedQueryAction {
                   // schema we plan against and the state the executor uses are the same view.
                   org.opensearch.analytics.QueryRequestContext queryCtx =
                       contextProvider.getContext();
-                  UnifiedQueryContext context = buildContext(queryType, profiling, queryCtx);
+                  // Disable SQL-layer phase profiling when analytics engine profiling is active.
+                  // Our QueryProfile (stages, tasks, timing) is strictly more detailed and replaces
+                  // it.
+                  UnifiedQueryContext context = buildContext(queryType, false, queryCtx);
                   ActionListener<TransportPPLQueryResponse> closingListener =
                       wrapWithContextClose(context, listener);
                   try {
@@ -145,11 +171,19 @@ public class RestUnifiedQueryAction {
                     RelNode plan = planner.plan(query);
                     CalcitePlanContext planContext = context.getPlanContext();
                     plan = addQuerySizeLimit(plan, planContext);
-                    analyticsEngine.execute(
-                        plan,
-                        planContext,
-                        queryCtx,
-                        createQueryListener(queryType, closingListener));
+                    if (profiling) {
+                      analyticsEngine.executeWithProfile(
+                          plan,
+                          planContext,
+                          queryCtx,
+                          createQueryListener(queryType, closingListener));
+                    } else {
+                      analyticsEngine.execute(
+                          plan,
+                          planContext,
+                          queryCtx,
+                          createQueryListener(queryType, closingListener));
+                    }
                   } catch (Exception e) {
                     closingListener.onFailure(e);
                   }
@@ -270,6 +304,10 @@ public class RestUnifiedQueryAction {
             formatter.format(
                 new QueryResult(
                     response.getSchema(), response.getResults(), response.getCursor(), langSpec));
+        if (response.getProfile() != null) {
+          // Append profile and error (if any) to the JSON response
+          result = appendProfileToJson(result, response.getProfile(), response.getError());
+        }
         transportListener.onResponse(new TransportPPLQueryResponse(result));
       }
 
@@ -278,6 +316,32 @@ public class RestUnifiedQueryAction {
         transportListener.onFailure(e);
       }
     };
+  }
+
+  private static String appendProfileToJson(String json, QueryProfile profile, Throwable error) {
+    try {
+      StringBuilder extra = new StringBuilder();
+      // Append profile
+      org.opensearch.core.xcontent.XContentBuilder builder =
+          org.opensearch.common.xcontent.XContentFactory.jsonBuilder();
+      profile.toXContent(builder, org.opensearch.core.xcontent.ToXContent.EMPTY_PARAMS);
+      extra.append(",\"profile\":").append(builder.toString());
+      // Append error if query partially failed
+      if (error != null) {
+        extra
+            .append(",\"error\":{\"type\":\"")
+            .append(error.getClass().getSimpleName())
+            .append("\",\"reason\":\"")
+            .append(error.getMessage() != null ? error.getMessage().replace("\"", "\\\"") : "")
+            .append("\"}");
+      }
+      if (json.endsWith("}")) {
+        return json.substring(0, json.length() - 1) + extra + "}";
+      }
+      return json;
+    } catch (Exception e) {
+      return json;
+    }
   }
 
   private static Runnable withCurrentContext(final Runnable task) {
